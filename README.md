@@ -1,4 +1,4 @@
-# Speech Recognition
+# Speech Recognition - ASR
 
 iSpeech's javascript speech recognition apis.
 
@@ -17,3 +17,5 @@ where workerLoc is the location of the iSpeechWorker.js file. To start audio rec
 Which will prompt the user to allow audio recording. **Note: if your site does not use https, the user will be prompted every time for permission to record.** The recognizer will continue to record until it is stopped, either with
 `audioRecognizer.stop();`
 or silence detection is enabled and silence is detected. For more information refer to the documentation in [doc/](doc/).
+
+To request a valid apiKey contact [dev@ispeech.org](dev@ispeech.org)
