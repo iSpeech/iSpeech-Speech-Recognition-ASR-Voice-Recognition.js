@@ -1,0 +1,64 @@
+
+<!DOCTYPE html>
+<html>
+	<head>
+		<script src="min/iSpeechRecognizer.min.js"></script>
+		<script src="min/iSpeechTTS.min.js"></script>
+	</head>
+
+	<body>
+		<table>
+			<tr><td><h2>Speech Recognition</h2></td></tr>
+			<tr>
+				<td>
+					<button onclick="initRec()">InitRec</button>
+					<button onclick="startRec()">StartRec</button>
+					<button onclick="stopRec()">StopRec</button>
+					<button onclick="addCommands()">addCommands</button>
+				</td>
+			</tr>
+			<tr>
+				<td>
+					<p id="recognized"></p>
+				</td>
+			</tr>
+		</table>
+
+	</body>
+
+<script>
+
+initRec = function() {
+	audioRecognizer = new iSpeechRecognizer({
+		apiKey: 'developerdemokeydeveloperdemokey',
+		silenceDetection: true,
+		onResponse: onRecognitionResponse,
+		workerLoc: 'min/iSpeechWorker.min.js'
+	});
+}
+
+onRecognitionResponse = function(response) {
+	if(response.result == 'success') {
+		document.getElementById('recognized').innerHTML = "Text: " + response.text + "<br>Confidence: " + response.confidence;
+	} else {
+		document.getElementById('recognized').innerHTML = "error " + response.code + ": " + response.message;
+	}
+}
+
+startRec = function() {
+	audioRecognizer.start();
+}
+
+stopRec = function() {
+	audioRecognizer.stop();
+}
+
+addCommands = function() {
+	audioRecognizer.addCommand("check %WHAT%");
+	audioRecognizer.addAlias("WHAT", ["status", "signal", "network", "phone number"]);
+	audioRecognizer.addCommand(["forward", "backward"]);
+	audioRecognizer.setLocale("en-US");
+}
+
+</script>
+</html>

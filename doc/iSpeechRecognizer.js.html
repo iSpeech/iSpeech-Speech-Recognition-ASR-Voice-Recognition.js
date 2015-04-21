@@ -1,0 +1,379 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>JSDoc: Source: iSpeechRecognizer.js</title>
+    
+    <script src="scripts/prettify/prettify.js"> </script>
+    <script src="scripts/prettify/lang-css.js"> </script>
+    <!--[if lt IE 9]>
+      <script src="//html5shiv.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+    <link type="text/css" rel="stylesheet" href="styles/prettify-tomorrow.css">
+    <link type="text/css" rel="stylesheet" href="styles/jsdoc-default.css">
+</head>
+
+<body>
+
+<div id="main">
+    
+    <h1 class="page-title">Source: iSpeechRecognizer.js</h1>
+    
+    
+
+
+    
+    <section>
+        <article>
+            <pre class="prettyprint source"><code>/**
+ *
+ * Object for handling ASR
+ *
+ * @class
+ * @constructor
+ * @param {object} param - parameters
+ * @param {string} param.apiKey - iSpeech api key (defaults to developerdemokeydeveloperdemokey)
+ * @param {iSpeechRecognizer~onResponse} param.onResponse - function to handle ASR results (defautls to printing the results using console.log)
+ * @param {boolean} param.silenceDetection - enable or disable silence detection (defaults to true)
+ * @param {string} param.workerLoc - path to worker location (defaults to iSpeechWorker.js)
+ */
+iSpeechRecognizer = function(params) {
+	this.commands = [];
+	this.aliasList = {};
+	this.optionalCommands = {};
+	this.endpoint = "ws://192.168.0.196:8181/";
+
+	params = params || {};
+	this.apiKey = params.apiKey || "developerdemokeydeveloperdemokey";
+	this.onResponse = params.onResponse || this.onResponse;
+	this.silenceDetection = params.silenceDetection || true;
+	this.workerLoc = params.workerLoc || 'iSpeechWorker.js';
+
+	window.navigator = window.navigator || {};
+	navigator.getUserMedia = navigator.getUserMedia ||
+							navigator.webkitGetUserMedia ||
+							navigator.mozGetUserMedia	||
+							null;
+	if (navigator.getUserMedia === null) {
+		this.onResponse({result:'error', code:10001, message:'Browser not supported'});
+		return;
+	}
+}
+
+iSpeechRecognizer.IDLE = 0;
+iSpeechRecognizer.WAITING_USER = 1;
+iSpeechRecognizer.RECORDING = 2;
+
+/**
+ * Current recording state.
+ * &lt;br>&lt;br>
+ * &lt;table class="params">
+ * &lt;thead>&lt;td>Name&lt;/td>&lt;td>Value&lt;/td>&lt;/thead>
+ * &lt;tbody>
+ * &lt;tr>&lt;td>IDLE&lt;/td>&lt;td>0&lt;/td>&lt;/tr>
+ * &lt;tr>&lt;td>WAITING_USER&lt;/td>&lt;td>1&lt;/td>&lt;/tr>
+ * &lt;tr>&lt;td>RECORDING&lt;/td>&lt;td>2&lt;/td>&lt;/tr>
+ * &lt;/tbody>
+ * &lt;/table>
+ */
+iSpeechRecognizer.prototype.state = iSpeechRecognizer.IDLE;
+
+iSpeechRecognizer.prototype.isBrowserSupported = function() {
+	return navigator.getUserMedia != null;
+}
+
+/**
+ * Start recording audio to recognize. &lt;br>&lt;br>
+ * &lt;b>Note:&lt;b> this will prompt the user to allow audio recording
+ * the first time this is called. If the source site is http
+ * rather than https it will prompt the user every time.
+ */
+iSpeechRecognizer.prototype.start = function() {
+	if(this.state != iSpeechRecognizer.IDLE)
+		return;
+
+	navigator.getUserMedia({
+		video: false,
+		audio: true
+	}, this.startRecording.bind(this),
+	function(error) {
+		this.onResponse({result:'error', code:10001, message:'Audio capture error: '+error.code});
+	});
+
+	this.state = iSpeechRecognizer.WAITING_USER;
+}
+
+/** @private */
+iSpeechRecognizer.prototype.startRecording = function(localMediaStream) {
+
+	// get the audio context
+	var AudioContext = window.AudioContext || window.webkitAudioContext;
+	var audioContext = new AudioContext();
+
+	this.mediaStream = localMediaStream; // save the stream for later
+
+	var source = audioContext.createMediaStreamSource(localMediaStream); // get the source
+
+	this.context = source.context;
+	this.node = (this.context.createScriptProcessor ||
+			 this.context.createJavaScriptNode).call(this.context, 8192, 1, 1); // get the node with a buffer of 4096 and one input/output channel
+
+	this.worker = new Worker(this.workerLoc); // start up our worker
+
+	this.worker.onmessage = this.onWorkerMessage.bind(this);
+
+	//send the start params
+	this.worker.postMessage({
+		command: 'start',
+		params: {
+			apiKey: this.apiKey,
+			srcSampleRate: this.context.sampleRate,
+			options: this.commandArgs(),
+			endpoint: this.endpoint,
+			silenceDetection: this.silenceDetection
+		}
+	});
+
+	this.node.onaudioprocess = this.processAudio.bind(this); // set the onaudioprocess
+	source.connect(this.node); // connect the node to the source
+	this.node.connect(this.context.destination);    //this should not be necessary
+
+	this.state = iSpeechRecognizer.RECORDING;
+}
+
+/** @private */
+iSpeechRecognizer.prototype.processAudio = function(e) {
+	var buffer = [];
+	buffer = e.inputBuffer.getChannelData(0);
+
+	// send the audio to the worker
+	this.worker.postMessage({
+		command: 'process',
+		buffer: buffer
+	});
+}
+
+/** @private */
+iSpeechRecognizer.prototype.onWorkerMessage = function(e) {
+	switch(e.data.command) {
+	case 'result':
+		if(!!this.onResponse)
+			this.onResponse(e.data.result);
+		break;
+
+	case 'con':
+		this.webSocket = new (WebSocket || MozWebSocket)(this.endpoint);
+		this.webSocket.onopen = function() {
+			this.worker.postMessage({
+				command: 'socketOpen'
+			});
+		}.bind(this);
+
+		this.webSocket.onmessage = function(x) { // send the response from the server to the foreground
+			this.onWorkerMessage({data: {command: 'result', result: JSON.parse(x.data)}});
+			this.webSocket.close();
+		}.bind(this);
+		break;
+
+	case 'send':
+		if(!!this.webSocket)
+			this.webSocket.send(e.data.data);
+		break;
+
+	case 'stop':
+		this.stop();
+		break;
+	}
+}
+
+/**
+ *
+ * This callback is called when an ASR result is given.
+ * 
+ * @callback iSpeechRecognizer~onResponse
+ * @param {object} response - The response from the server.
+ * @param {string} response.result - The success of the query. Will typically be 'success' or 'error'.
+ * @param {string} response.text - The recognized text. Will not exist on an error.
+ * @param {string} response.confidence - the confidence of the recognized text.
+ * @param {integer} response.code - The error code, if there is one.
+ * @param {string} response.message - An error message, if there is one.
+ */
+iSpeechRecognizer.prototype.onResponse = function(resp) {
+	console.log(resp);
+}
+
+/**
+ * Stop recording audio.
+ */
+iSpeechRecognizer.prototype.stop = function() {
+	if(this.state != iSpeechRecognizer.RECORDING)
+		return;
+
+	this.state = iSpeechRecognizer.IDLE;
+
+	this.worker.postMessage({
+		command: 'stop'
+	});
+	this.mediaStream.stop();
+	this.node.disconnect();
+}
+
+/**
+ * Adds a command phrases.
+ * &lt;p>
+ * Example:
+ * &lt;/p>
+ * 
+ * &lt;code>
+ * rec.addCommand([&#39;yes&#39;,&#39;no&#39;]);
+ * &lt;/code>
+ * &lt;p>
+ * The user can now speak "Yes" or "No" and it will be recognized correctly.
+ * 
+ * @param {string|string[]} Commands An array containing your command phrases
+ */
+iSpeechRecognizer.prototype.addCommand = function(command) {
+	this.commands = this.commands.concat(command);
+}
+
+/**
+ * &lt;p>
+ * Adds an alias to use inside of a command. You can reference the added
+ * alias using %ALIASNAME% from within a command. Alias names are
+ * automatically capitalized. Note: You can only have a maximum of two
+ * aliases per command.
+ * &lt;/p>
+ * &lt;p>
+ * Example:
+ * &lt;/p>
+ * 
+ * &lt;code>
+ * var names = [ &#39;jane&#39;, &#39;bob&#39;, &#39;john&#39; ];&lt;br>
+ * rec.addAlias(&#39;NAMES&#39;, names);&lt;br>
+ * rec.addCommand(&#39;call %NAMES%&#39;);&lt;br>
+ * &lt;/code>
+ * &lt;p>
+ * The user can now speak "call john" and it will be recognized correctly.
+ * &lt;/p>
+ * 
+ * @param {string} Alias The name of your alias for referencing inside of your commands.
+ * @param {string|string[]} Values The list of phrases for this alias.
+ */
+iSpeechRecognizer.prototype.addAlias = function(alias, values) {
+	this.aliasList[alias] = [].concat(values);
+}
+
+/**
+ * Specify additional parameters to send to the server.
+ *
+ * @param {string} Key - Parameter Key
+ * @param {string} Value - Parameter Value
+ */
+iSpeechRecognizer.prototype.addOptionalCommand = function(key, value) {
+	this.optionalCommands[key] = value;
+}
+
+/**
+ * Sets to Locale for recognizer.&lt;br>&lt;br>
+ * 
+ * &lt;table class="params">
+ * &lt;thead>&lt;tr>&lt;td>Country&lt;/td>&lt;td>Locale&lt;/td>&lt;tr>&lt;/thead>
+ * &lt;tbody>
+ * &lt;tr>&lt;td>Catalan (Catalan)&lt;/td>&lt;td>'ca-ES'&lt;/td>&lt;/tr>
+ * &lt;tr>&lt;td>Chinese (Taiwan)&lt;/td>&lt;td>'zh-TW'&lt;/td>&lt;/tr>
+ * &lt;tr>&lt;td>Danish (Denmark)&lt;/td>&lt;td>'da-DK'&lt;/td>&lt;/tr>
+ * &lt;tr>&lt;td>English (United States)&lt;/td>&lt;td>'en-US'&lt;/td>&lt;/tr>
+ * &lt;tr>&lt;td>Finnish (Finland)&lt;/td>&lt;td>'fi-FI'&lt;/td>&lt;/tr>
+ * &lt;tr>&lt;td>French (France)&lt;/td>&lt;td>'fr-FR'&lt;/td>&lt;/tr>
+ * &lt;tr>&lt;td>Italian (Italy)&lt;/td>&lt;td>'it-IT'&lt;/td>&lt;/tr>
+ * &lt;tr>&lt;td>Japanese (Japan)&lt;/td>&lt;td>'ja-JP'&lt;/td>&lt;/tr>
+ * &lt;tr>&lt;td>Korean (Korea)&lt;/td>&lt;td>'ko-KR'&lt;/td>&lt;/tr>
+ * &lt;tr>&lt;td>Dutch (Netherlands)&lt;/td>&lt;td>'nl-NL'&lt;/td>&lt;/tr>
+ * &lt;tr>&lt;td>Norwegian (Norway)&lt;/td>&lt;td>'nb-NO'&lt;/td>&lt;/tr>
+ * &lt;tr>&lt;td>Polish (Poland)&lt;/td>&lt;td>'pl-PL'&lt;/td>&lt;/tr>
+ * &lt;tr>&lt;td>Portuguese (Brazil)&lt;/td>&lt;td>'pt-BR'&lt;/td>&lt;/tr>
+ * &lt;tr>&lt;td>Russian (Russia)&lt;/td>&lt;td>'ru-RU'&lt;/td>&lt;/tr>
+ * &lt;tr>&lt;td>Swedish (Sweden)&lt;/td>&lt;td>'sv-SE'&lt;/td>&lt;/tr>
+ * &lt;tr>&lt;td>Chinese (People's Republic of China)&lt;/td>&lt;td>'zh-CN'&lt;/td>&lt;/tr>
+ * &lt;tr>&lt;td>English (United Kingdom)&lt;/td>&lt;td>'en-GB'&lt;/td>&lt;/tr>
+ * &lt;tr>&lt;td>Spanish (Mexico)&lt;/td>&lt;td>'es-MX'&lt;/td>&lt;/tr>
+ * &lt;tr>&lt;td>Portuguese (Portugal)&lt;/td>&lt;td>'pt-PT'&lt;/td>&lt;/tr>
+ * &lt;tr>&lt;td>Chinese (Hong Kong S.A.R.)&lt;/td>&lt;td>'zh-HK'&lt;/td>&lt;/tr>
+ * &lt;tr>&lt;td>English (Australia)&lt;/td>&lt;td>'en-AU'&lt;/td>&lt;/tr>
+ * &lt;tr>&lt;td>Spanish (Spain)&lt;/td>&lt;td>'es-ES'&lt;/td>&lt;/tr>
+ * &lt;tr>&lt;td>French (Canada)&lt;/td>&lt;td>'fr-CA'&lt;/td>&lt;/tr>
+ * &lt;tr>&lt;td>English (Canada)&lt;/td>&lt;td>'en-CA'&lt;/td>&lt;/tr>
+ * &lt;/tbody>
+ * &lt;/table>
+ *
+ * @param {string} Locale Locale from the list above.
+ */
+iSpeechRecognizer.prototype.setLocale = function(locale) {
+	this.addOptionalCommand("locale", locale);
+}
+
+/** Clear the set commands and aliases. */
+iSpeechRecognizer.prototype.clearCommandAndAlias = function() {
+	this.commands = [];
+	this.aliasList = {};
+	this.optionalCommands = {};
+}
+
+/** @private */
+iSpeechRecognizer.prototype.pipeSeparate = function(list) {
+	var ret = encodeURIComponent(list[0]);
+
+	for(var i = 1; i &lt; list.length; i++) {
+		ret += "|" + encodeURIComponent(list[i]);
+	}
+
+	return ret;
+}
+
+/** @private */
+iSpeechRecognizer.prototype.commandArgs = function() {
+	var ret = "";
+	var alias = [];
+
+	for(var i = 0; i &lt; this.commands.length; i++) {
+		alias.push("command" + (i+1));
+		ret += "&" + alias[i] + "=" + encodeURIComponent(this.commands[i]);
+	}
+
+	for(var key in this.aliasList) {
+		ret += "&" + encodeURIComponent(key.toUpperCase()) + "=" + this.pipeSeparate(this.aliasList[key]);
+		alias.push(key.toUpperCase());
+	}
+
+	if(alias.length > 0)
+		ret += "&alias=" + this.pipeSeparate(alias);
+
+	for(var key in this.optionalCommands) {
+		ret += "&" + encodeURIComponent(key) + "=" + encodeURIComponent(this.optionalCommands[key]);
+	}
+
+	return ret;
+}
+</code></pre>
+        </article>
+    </section>
+
+
+
+
+</div>
+
+<nav>
+    <h2><a href="index.html">Index</a></h2><h3>Classes</h3><ul><li><a href="iSpeechRecognizer.html">iSpeechRecognizer</a></li></ul>
+</nav>
+
+<br clear="both">
+
+<footer>
+    Documentation generated by <a href="https://github.com/jsdoc3/jsdoc">JSDoc 3.2.2</a> on Mon Apr 20 2015 16:41:34 GMT-0400 (EDT)
+</footer>
+
+<script> prettyPrint(); </script>
+<script src="scripts/linenumber.js"> </script>
+</body>
+</html>
