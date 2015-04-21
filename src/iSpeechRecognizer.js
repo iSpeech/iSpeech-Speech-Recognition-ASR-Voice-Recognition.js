@@ -14,7 +14,7 @@ iSpeechRecognizer = function(params) {
 	this.commands = [];
 	this.aliasList = {};
 	this.optionalCommands = {};
-	this.endpoint = "ws://192.168.0.196:8181/";
+	this.endpoint = "wss://malcom.ispeech.org:8431/";
 
 	params = params || {};
 	this.apiKey = params.apiKey || "developerdemokeydeveloperdemokey";
