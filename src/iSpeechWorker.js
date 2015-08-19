@@ -6858,7 +6858,7 @@ connectToServer = function() {
 		webSocket.onmessage = function(x) { // send the response from the server to the foreground
 			var res = JSON.parse(x.data);
 			this.postMessage({command: 'result', result: res});
-			if(res.result.toLowerCase() == "success") {
+			if(res.result.toLowerCase() == "success" || res.result.toLowerCase() == "error") {
 				webSocket.close();
 			}
 		}.bind(this);
