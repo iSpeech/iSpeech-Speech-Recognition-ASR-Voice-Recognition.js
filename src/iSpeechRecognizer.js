@@ -14,13 +14,13 @@ iSpeechRecognizer = function(params) {
 	this.commands = [];
 	this.aliasList = {};
 	this.optionalCommands = {};
-	this.endpoint = "wss://malcom.ispeech.org:8431/";
+	this.endpoint = "wss://malcom.ispeech.org:8181/";
 
 	params = params || {};
 	this.apiKey = params.apiKey || "developerdemokeydeveloperdemokey";
 	this.onResponse = params.onResponse || this.onResponse;
 	this.silenceDetection = params.silenceDetection || true;
-	this.workerLoc = params.workerLoc || 'iSpeechWorker.min.js';
+	this.workerLoc = params.workerLoc || 'iSpeechWorker.js';
 
 	window.navigator = window.navigator || {};
 	navigator.getUserMedia = navigator.getUserMedia ||
@@ -31,6 +31,7 @@ iSpeechRecognizer = function(params) {
 		this.onResponse({result:'error', code:10001, message:'Browser not supported'});
 		return;
 	}
+	this.audioContext = null;
 }
 
 iSpeechRecognizer.IDLE = 0;
@@ -81,11 +82,11 @@ iSpeechRecognizer.prototype.startRecording = function(localMediaStream) {
 
 	// get the audio context
 	var AudioContext = window.AudioContext || window.webkitAudioContext;
-	var audioContext = new AudioContext();
+	this.audioContext = new AudioContext();
 
 	this.mediaStream = localMediaStream; // save the stream for later
 
-	var source = audioContext.createMediaStreamSource(localMediaStream); // get the source
+	var source = this.audioContext.createMediaStreamSource(localMediaStream); // get the source
 
 	this.context = source.context;
 	this.node = (this.context.createScriptProcessor ||
@@ -143,8 +144,11 @@ iSpeechRecognizer.prototype.onWorkerMessage = function(e) {
 		}.bind(this);
 
 		this.webSocket.onmessage = function(x) { // send the response from the server to the foreground
-			this.onWorkerMessage({data: {command: 'result', result: JSON.parse(x.data)}});
-			this.webSocket.close();
+			var res = JSON.parse(x.data);
+			this.onWorkerMessage({data:{command: 'result', result: res}});
+			if(res.result.toLowerCase() == "success") {
+				this.webSocket.close();
+			}
 		}.bind(this);
 		break;
 
@@ -155,6 +159,10 @@ iSpeechRecognizer.prototype.onWorkerMessage = function(e) {
 
 	case 'stop':
 		this.stop();
+		break;
+
+	case 'log':
+		console.log(e.data);
 		break;
 	}
 }
@@ -187,8 +195,11 @@ iSpeechRecognizer.prototype.stop = function() {
 	this.worker.postMessage({
 		command: 'stop'
 	});
+	this.worker.terminate();
+	this.audioContext.close();
 	this.mediaStream.stop();
 	this.node.disconnect();
+	this.node.onaudioprocess = function(){};
 }
 
 /**
