@@ -143,6 +143,14 @@ iSpeechRecognizer.prototype.onWorkerMessage = function(e) {
 			});
 		}.bind(this);
 
+		this.webSocket.onerror = function() {
+			this.onWorkerMessage({command: 'errorConnecting'});
+		}.bind(this);
+		
+		this.webSocket.onclose = function() {
+			this.worker.terminate();
+		}.bind(this);
+
 		this.webSocket.onmessage = function(x) { // send the response from the server to the foreground
 			var res = JSON.parse(x.data);
 			this.onWorkerMessage({data:{command: 'result', result: res}});
@@ -155,6 +163,10 @@ iSpeechRecognizer.prototype.onWorkerMessage = function(e) {
 	case 'send':
 		if(!!this.webSocket)
 			this.webSocket.send(e.data.data);
+		break;
+
+	case 'errorConnecting':
+		this.onResponse({result:'error', code:10002, message:'Error connecting to server'});
 		break;
 
 	case 'stop':
@@ -195,11 +207,10 @@ iSpeechRecognizer.prototype.stop = function() {
 	this.worker.postMessage({
 		command: 'stop'
 	});
-	this.worker.terminate();
-	this.audioContext.close();
 	this.mediaStream.stop();
 	this.node.disconnect();
 	this.node.onaudioprocess = function(){};
+	if(this.audioContext.close) this.audioContext.close();
 }
 
 /**

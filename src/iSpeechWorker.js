@@ -6854,6 +6854,14 @@ connectToServer = function() {
 		webSocket.onopen = function() {
 			initConnection();
 		}
+		
+		webSocket.onerror = function() {
+			this.postMessage({command: 'errorConnecting'});
+		}.bind(this);
+		
+		webSocket.onclose = function() {
+			self.close();
+		}.bind(this);
 
 		webSocket.onmessage = function(x) { // send the response from the server to the foreground
 			var res = JSON.parse(x.data);
