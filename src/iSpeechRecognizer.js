@@ -207,7 +207,14 @@ iSpeechRecognizer.prototype.stop = function() {
 	this.worker.postMessage({
 		command: 'stop'
 	});
-	this.mediaStream.stop();
+	if(this.mediaStream.stop) {
+		this.mediaStream.stop();
+	} else {
+		var tracks = this.mediaStream.getTracks();
+		for(var i = 0; i < tracks.length; i++) {
+			tracks[i].stop();
+		}
+	}
 	this.node.disconnect();
 	this.node.onaudioprocess = function(){};
 	if(this.audioContext.close) this.audioContext.close();
