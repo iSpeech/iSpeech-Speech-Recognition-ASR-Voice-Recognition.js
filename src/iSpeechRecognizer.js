@@ -79,7 +79,7 @@ iSpeechRecognizer.prototype.start = function() {
 	}, this.startRecording.bind(this),
 	function(error) {
 		this.onResponse({result:'error', code:10001, message:'Audio capture error: '+error.code});
-	});
+	}.bind(this));
 
 	this.switchState(iSpeechRecognizer.WAITING_USER);
 }
