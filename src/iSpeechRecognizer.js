@@ -52,6 +52,13 @@ iSpeechRecognizer.RECORDING = 2;
  */
 iSpeechRecognizer.prototype.state = iSpeechRecognizer.IDLE;
 
+/** @private */
+iSpeechRecognizer.prototype.switchState = function(state) {
+	this.state = state;
+	this.onStateChange(state);
+}
+
+/** @private */
 iSpeechRecognizer.prototype.isBrowserSupported = function() {
 	return navigator.getUserMedia != null;
 }
@@ -74,7 +81,7 @@ iSpeechRecognizer.prototype.start = function() {
 		this.onResponse({result:'error', code:10001, message:'Audio capture error: '+error.code});
 	});
 
-	this.state = iSpeechRecognizer.WAITING_USER;
+	this.switchState(iSpeechRecognizer.WAITING_USER);
 }
 
 /** @private */
@@ -112,7 +119,7 @@ iSpeechRecognizer.prototype.startRecording = function(localMediaStream) {
 	source.connect(this.node); // connect the node to the source
 	this.node.connect(this.context.destination);    //this should not be necessary
 
-	this.state = iSpeechRecognizer.RECORDING;
+	this.switchState(iSpeechRecognizer.RECORDING);
 }
 
 /** @private */
@@ -196,13 +203,25 @@ iSpeechRecognizer.prototype.onResponse = function(resp) {
 }
 
 /**
+ * 
+ * This callback is called when the recording state is changed
+ * 
+ * @callback iSpeechRecognizer~onStateChange
+ * @param {integer} state - The new state
+ */
+iSpeechRecognizer.prototype.onStateChange = function(state) {
+	console.log("new state: " + state);
+}
+
+
+/**
  * Stop recording audio.
  */
 iSpeechRecognizer.prototype.stop = function() {
 	if(this.state != iSpeechRecognizer.RECORDING)
 		return;
 
-	this.state = iSpeechRecognizer.IDLE;
+	this.switchState(iSpeechRecognizer.IDLE);
 
 	this.worker.postMessage({
 		command: 'stop'
